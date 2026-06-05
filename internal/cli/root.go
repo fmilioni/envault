@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/fmilioni/envault/internal/tui"
 )
 
 var (
@@ -16,9 +18,12 @@ func newRootCmd() *cobra.Command {
 		Use:          "envault",
 		Short:        "Save and restore .env files — like git stash for your environment variables",
 		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), "envault: interactive browser not implemented yet")
-			return nil
+		RunE: func(_ *cobra.Command, _ []string) error {
+			v, err := openVault()
+			if err != nil {
+				return err
+			}
+			return tui.Run(v)
 		},
 	}
 
