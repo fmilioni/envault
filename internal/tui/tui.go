@@ -30,6 +30,12 @@ const (
 	helpRows    = 1
 )
 
+// Selection is the (project, stage) a user picked in selector mode.
+type Selection struct {
+	Project string
+	Stage   string
+}
+
 // Run opens the browser TUI over the given vault and blocks until the user quits.
 func Run(v *vault.Vault) error {
 	m, err := newModel(v)
@@ -38,6 +44,26 @@ func Run(v *vault.Vault) error {
 	}
 	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
+}
+
+// Select runs the browser as an interactive picker, pre-selecting the inferred
+// project/stage. Returns the chosen snapshot, nil if the user cancelled, or nil
+// when the vault is empty (nothing to pick).
+func Select(v *vault.Vault, project, stage string) (*Selection, error) {
+	m, err := newModel(v)
+	if err != nil {
+		return nil, err
+	}
+	if len(m.projects) == 0 {
+		return nil, nil
+	}
+	m.selecting = true
+	m.preselect(project, stage)
+	out, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	if err != nil {
+		return nil, err
+	}
+	return out.(model).chosen, nil
 }
 
 type model struct {
@@ -56,6 +82,9 @@ type model struct {
 	ready  bool
 	width  int
 	height int
+
+	selecting bool
+	chosen    *Selection
 }
 
 func newModel(v *vault.Vault) (model, error) {
@@ -70,19 +99,49 @@ func newModel(v *vault.Vault) (model, error) {
 
 func (m model) Init() tea.Cmd { return nil }
 
-// refreshStages reloads the stage list for the selected project and reloads the
+// refreshStages reloads the stage list for the selected project and its
 // snapshot. Keeps stageIdx in range when the new project has fewer stages.
 func (m *model) refreshStages() {
+	if m.loadStages() {
+		m.refreshSnapshot()
+	}
+}
+
+// loadStages loads the stage list for the selected project, resetting stageIdx.
+// Returns false (with loadErr set) so callers skip the snapshot load on failure.
+func (m *model) loadStages() bool {
 	m.stages = nil
 	m.stageIdx = 0
-	if len(m.projects) > 0 {
-		stages, err := m.vault.Stages(m.projects[m.projIdx])
-		if err != nil {
-			m.loadErr = err
-			m.snap = nil
-			return
+	if len(m.projects) == 0 {
+		return true
+	}
+	stages, err := m.vault.Stages(m.projects[m.projIdx])
+	if err != nil {
+		m.loadErr = err
+		m.snap = nil
+		return false
+	}
+	m.stages = stages
+	return true
+}
+
+// preselect moves the cursor to the inferred project/stage before the program
+// starts; a stage with no match falls back to the first one (index 0).
+func (m *model) preselect(project, stage string) {
+	for i, p := range m.projects {
+		if p == project {
+			m.projIdx = i
+			break
 		}
-		m.stages = stages
+	}
+	if !m.loadStages() {
+		return
+	}
+	for i, s := range m.stages {
+		if s == stage {
+			m.stageIdx = i
+			break
+		}
 	}
 	m.refreshSnapshot()
 }
@@ -116,6 +175,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			return m, tea.Quit
+
+		case "enter":
+			if m.selecting && len(m.stages) > 0 && m.snap != nil {
+				m.chosen = &Selection{Project: m.projects[m.projIdx], Stage: m.stages[m.stageIdx]}
+				return m, tea.Quit
+			}
 
 		case "up", "k":
 			if len(m.projects) > 0 {
@@ -200,7 +265,14 @@ func (m model) View() string {
 	right := panelStyle.Width(rightW).Height(bodyH).Render(m.rightView(previewW))
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 
-	return lipgloss.JoinVertical(lipgloss.Left, titleStyle.Render("Envault"), body, m.helpView())
+	return lipgloss.JoinVertical(lipgloss.Left, titleStyle.Render(m.title()), body, m.helpView())
+}
+
+func (m model) title() string {
+	if m.selecting {
+		return "Envault · load — pick a snapshot"
+	}
+	return "Envault"
 }
 
 func (m model) projectsView(w int) string {
@@ -316,6 +388,9 @@ func (m model) emptyView() string {
 
 func (m model) helpView() string {
 	keys := "↑/↓ project · ←/→ stage · pgup/pgdn scroll · q quit"
+	if m.selecting {
+		keys = "↑/↓ project · ←/→ stage · enter load · q/esc cancel"
+	}
 	return helpStyle.Render(truncate(keys, m.width-panelHPad))
 }
 

@@ -175,6 +175,61 @@ func TestTabStripStaysOneLine(t *testing.T) {
 	}
 }
 
+func TestSelectorPreselectAndConfirm(t *testing.T) {
+	v := newTestVault(t)
+	mustSave(t, v, "alpha", "dev", vault.File{Path: ".env", Content: []byte("A=1\n")})
+	mustSave(t, v, "alpha", "prod", vault.File{Path: ".env", Content: []byte("A=9\n")})
+	mustSave(t, v, "beta", "dev", vault.File{Path: ".env", Content: []byte("B=1\n")})
+
+	m, err := newModel(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.selecting = true
+	m.preselect("alpha", "prod")
+	if m.projects[m.projIdx] != "alpha" || m.stages[m.stageIdx] != "prod" {
+		t.Fatalf("preselect landed on %s/%s, want alpha/prod", m.projects[m.projIdx], m.stages[m.stageIdx])
+	}
+	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if cmd == nil {
+		t.Error("enter did not return a quit command")
+	}
+	if m.chosen == nil || m.chosen.Project != "alpha" || m.chosen.Stage != "prod" {
+		t.Fatalf("chosen = %+v, want alpha/prod", m.chosen)
+	}
+}
+
+func TestSelectorCancelLeavesNoChoice(t *testing.T) {
+	v := newTestVault(t)
+	mustSave(t, v, "alpha", "dev", vault.File{Path: ".env", Content: []byte("A=1\n")})
+
+	m, err := newModel(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.selecting = true
+	m.preselect("alpha", "dev")
+	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = send(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.chosen != nil {
+		t.Errorf("esc should not choose, got %+v", m.chosen)
+	}
+}
+
+func TestSelectEmptyVaultReturnsNil(t *testing.T) {
+	sel, err := Select(newTestVault(t), "anything", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sel != nil {
+		t.Errorf("empty vault should yield no selection, got %+v", sel)
+	}
+}
+
 func TestQuitKeys(t *testing.T) {
 	m, err := newModel(newTestVault(t))
 	if err != nil {

@@ -5,7 +5,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fmilioni/envault/internal/tui"
+	"github.com/fmilioni/envault/internal/vault"
 )
+
+// swapLoadDeps overrides the interactivity check and the selector for one test,
+// returning a restore func — keeps the TUI out of the non-TTY test harness.
+func swapLoadDeps(interactive func() bool, sel func(*vault.Vault, string, string) (*tui.Selection, error)) func() {
+	oldI, oldS := loadInteractive, loadSelect
+	loadInteractive, loadSelect = interactive, sel
+	return func() { loadInteractive, loadSelect = oldI, oldS }
+}
 
 func TestSaveLoadRoundTrip(t *testing.T) {
 	dir, _ := workspace(t)
@@ -99,6 +110,74 @@ func TestLoadNotFound(t *testing.T) {
 		t.Fatal("expected not-found error")
 	}
 	if !strings.Contains(err.Error(), "available stages") || !strings.Contains(err.Error(), "dev") {
+		t.Errorf("error should list available stages: %v", err)
+	}
+}
+
+func TestLoadInteractiveSelectRestores(t *testing.T) {
+	dir, _ := workspace(t)
+	writeFile(t, dir, ".env", "PICKED=1")
+	// Saved under a non-default stage, so no --stage triggers the selector.
+	if _, err := runCLI(t, "", "save", "--project", "svc", "--stage", "staging"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	os.Remove(filepath.Join(dir, ".env"))
+
+	restore := swapLoadDeps(
+		func() bool { return true },
+		func(_ *vault.Vault, _, _ string) (*tui.Selection, error) {
+			return &tui.Selection{Project: "svc", Stage: "staging"}, nil
+		})
+	defer restore()
+
+	out, err := runCLI(t, "", "load", "--project", "svc")
+	if err != nil {
+		t.Fatalf("load: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Restored 1 file(s) from svc/staging") {
+		t.Errorf("unexpected output:\n%s", out)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, ".env")); string(got) != "PICKED=1" {
+		t.Errorf("restored content = %q", got)
+	}
+}
+
+func TestLoadInteractiveCancel(t *testing.T) {
+	dir, _ := workspace(t)
+	writeFile(t, dir, ".env", "ORIG=1")
+	if _, err := runCLI(t, "", "save", "--project", "svc", "--stage", "staging"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	restore := swapLoadDeps(
+		func() bool { return true },
+		func(_ *vault.Vault, _, _ string) (*tui.Selection, error) { return nil, nil })
+	defer restore()
+
+	out, err := runCLI(t, "", "load", "--project", "svc")
+	if err != nil {
+		t.Fatalf("load: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Aborted.") {
+		t.Errorf("expected abort on cancel, got:\n%s", out)
+	}
+}
+
+func TestLoadNoDefaultNonInteractiveListsStages(t *testing.T) {
+	dir, _ := workspace(t)
+	writeFile(t, dir, ".env", "X=1")
+	if _, err := runCLI(t, "", "save", "--project", "svc", "--stage", "staging"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	restore := swapLoadDeps(func() bool { return false }, loadSelect)
+	defer restore()
+
+	_, err := runCLI(t, "", "load", "--project", "svc")
+	if err == nil {
+		t.Fatal("expected not-found error without a default stage")
+	}
+	if !strings.Contains(err.Error(), "available stages") || !strings.Contains(err.Error(), "staging") {
 		t.Errorf("error should list available stages: %v", err)
 	}
 }

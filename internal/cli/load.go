@@ -8,9 +8,17 @@ import (
 	"strings"
 
 	"github.com/fmilioni/envault/internal/envctx"
+	"github.com/fmilioni/envault/internal/tui"
 	"github.com/fmilioni/envault/internal/vault"
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
+
+var loadInteractive = func() bool {
+	return isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd())
+}
+
+var loadSelect = tui.Select
 
 func newLoadCmd() *cobra.Command {
 	var yes bool
@@ -36,13 +44,58 @@ func runLoad(cmd *cobra.Command, yes bool) error {
 	if err != nil {
 		return err
 	}
-	stage := envctx.ResolveStage(flagStage)
 
 	v, err := openVault()
 	if err != nil {
 		return err
 	}
 
+	project, stage, ok, err := resolveLoadTarget(v, project)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
+		return nil
+	}
+	return restoreSnapshot(cmd, dir, v, project, stage, yes)
+}
+
+// resolveLoadTarget decides which (project, stage) to restore. An explicit
+// --stage, or an existing `default` snapshot, resolves deterministically; with
+// neither, an interactive terminal opens the picker. ok=false means cancelled.
+// Non-interactive or empty vault falls through to the default stage, whose
+// not-found error downstream lists the available stages.
+func resolveLoadTarget(v *vault.Vault, project string) (string, string, bool, error) {
+	stage := envctx.ResolveStage(flagStage)
+	if flagStage != "" {
+		return project, stage, true, nil
+	}
+	hasDefault, err := v.Exists(project, stage)
+	if err != nil {
+		return "", "", false, err
+	}
+	if hasDefault {
+		return project, stage, true, nil
+	}
+	projects, err := v.Projects()
+	if err != nil {
+		return "", "", false, err
+	}
+	if len(projects) > 0 && loadInteractive() {
+		sel, err := loadSelect(v, project, stage)
+		if err != nil {
+			return "", "", false, err
+		}
+		if sel == nil {
+			return "", "", false, nil
+		}
+		return sel.Project, sel.Stage, true, nil
+	}
+	return project, stage, true, nil
+}
+
+func restoreSnapshot(cmd *cobra.Command, dir string, v *vault.Vault, project, stage string, yes bool) error {
 	snap, err := v.Load(project, stage)
 	if err != nil {
 		if vault.IsNotFound(err) {
