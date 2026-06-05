@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/fmilioni/envault/internal/vault"
+	"github.com/mattn/go-isatty"
+	"golang.org/x/term"
 )
 
 // openVault opens the vault, honoring ENVAULT_HOME as a root override so tests
@@ -20,6 +23,49 @@ func openVault() (*vault.Vault, error) {
 		return vault.OpenAt(home)
 	}
 	return vault.Open()
+}
+
+// stdinIsTTY is the seam for deciding whether the interactive TUI / password
+// prompt can run; tests point it away from a real terminal.
+var stdinIsTTY = func() bool {
+	return isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd())
+}
+
+// resolvePassword obtains a bundle password without ever echoing it. ENVAULT_PASSWORD
+// wins when set (the scripting/CI/test path); otherwise a TTY is prompted (twice when
+// confirm is set, e.g. on export). A non-TTY with no env var is an error so we never
+// silently produce an unencrypted-by-accident or hung command.
+func resolvePassword(confirm bool) (string, error) {
+	if pw := os.Getenv("ENVAULT_PASSWORD"); pw != "" {
+		return pw, nil
+	}
+	if !stdinIsTTY() {
+		return "", errors.New("no password available: set ENVAULT_PASSWORD or run in an interactive terminal")
+	}
+	pw, err := readSecret("Password: ")
+	if err != nil {
+		return "", err
+	}
+	if pw == "" {
+		return "", errors.New("password is empty")
+	}
+	if confirm {
+		again, err := readSecret("Confirm password: ")
+		if err != nil {
+			return "", err
+		}
+		if pw != again {
+			return "", errors.New("passwords do not match")
+		}
+	}
+	return pw, nil
+}
+
+func readSecret(prompt string) (string, error) {
+	fmt.Fprint(os.Stderr, prompt)
+	b, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr)
+	return string(b), err
 }
 
 // readFilesFromDir loads each path (relative to dir) into a vault.File, with the
@@ -43,12 +89,9 @@ func snapshotsEqual(a, b []vault.File) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	byPath := make(map[string][]byte, len(a))
-	for _, f := range a {
-		byPath[f.Path] = f.Content
-	}
+	byA := byPath(a)
 	for _, f := range b {
-		c, ok := byPath[f.Path]
+		c, ok := byA[f.Path]
 		if !ok || !bytes.Equal(c, f.Content) {
 			return false
 		}

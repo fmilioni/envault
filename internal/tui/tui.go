@@ -66,6 +66,41 @@ func Select(v *vault.Vault, project, stage string) (*Selection, error) {
 	return out.(model).chosen, nil
 }
 
+// SelectMulti runs the browser as a multi-project picker for `export`: the user
+// toggles whole projects (each carries all its stages) while previewing them.
+// preProject is pre-checked. Returns the chosen project names in vault order,
+// nil if the user cancelled, or nil when the vault is empty.
+func SelectMulti(v *vault.Vault, preProject string) ([]string, error) {
+	m, err := newModel(v)
+	if err != nil {
+		return nil, err
+	}
+	if len(m.projects) == 0 {
+		return nil, nil
+	}
+	m.multiSelecting = true
+	m.checked = make(map[string]bool, len(m.projects))
+	m.preselect(preProject, "")
+	if preProject != "" {
+		m.checked[preProject] = true
+	}
+	out, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	if err != nil {
+		return nil, err
+	}
+	fm := out.(model)
+	if !fm.confirmed {
+		return nil, nil
+	}
+	var chosen []string
+	for _, p := range fm.projects {
+		if fm.checked[p] {
+			chosen = append(chosen, p)
+		}
+	}
+	return chosen, nil
+}
+
 type model struct {
 	vault *vault.Vault
 
@@ -85,6 +120,10 @@ type model struct {
 
 	selecting bool
 	chosen    *Selection
+
+	multiSelecting bool
+	checked        map[string]bool
+	confirmed      bool
 }
 
 func newModel(v *vault.Vault) (model, error) {
@@ -181,6 +220,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.chosen = &Selection{Project: m.projects[m.projIdx], Stage: m.stages[m.stageIdx]}
 				return m, tea.Quit
 			}
+			if m.multiSelecting && m.anyChecked() {
+				m.confirmed = true
+				return m, tea.Quit
+			}
+
+		case " ":
+			if m.multiSelecting && len(m.projects) > 0 {
+				p := m.projects[m.projIdx]
+				m.checked[p] = !m.checked[p]
+			}
+
+		case "a":
+			if m.multiSelecting {
+				all := !m.allChecked()
+				for _, p := range m.projects {
+					m.checked[p] = all
+				}
+			}
 
 		case "up", "k":
 			if len(m.projects) > 0 {
@@ -269,8 +326,11 @@ func (m model) View() string {
 }
 
 func (m model) title() string {
-	if m.selecting {
+	switch {
+	case m.selecting:
 		return "Envault · load — pick a snapshot"
+	case m.multiSelecting:
+		return "Envault · export — pick projects"
 	}
 	return "Envault"
 }
@@ -280,7 +340,15 @@ func (m model) projectsView(w int) string {
 	b.WriteString(headerStyle.Render("Projects"))
 	b.WriteString("\n\n")
 	for i, p := range m.projects {
-		line := truncate(p, w-panelHPad)
+		label := p
+		if m.multiSelecting {
+			box := "[ ] "
+			if m.checked[p] {
+				box = "[x] "
+			}
+			label = box + p
+		}
+		line := truncate(label, w-panelHPad)
 		if i == m.projIdx {
 			b.WriteString(selectedItemStyle.Render("› " + line))
 		} else {
@@ -289,6 +357,24 @@ func (m model) projectsView(w int) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func (m model) anyChecked() bool {
+	for _, v := range m.checked {
+		if v {
+			return true
+		}
+	}
+	return false
+}
+
+func (m model) allChecked() bool {
+	for _, p := range m.projects {
+		if !m.checked[p] {
+			return false
+		}
+	}
+	return len(m.projects) > 0
 }
 
 func (m model) rightView(width int) string {
@@ -388,8 +474,11 @@ func (m model) emptyView() string {
 
 func (m model) helpView() string {
 	keys := "↑/↓ project · ←/→ stage · pgup/pgdn scroll · q quit"
-	if m.selecting {
+	switch {
+	case m.selecting:
 		keys = "↑/↓ project · ←/→ stage · enter load · q/esc cancel"
+	case m.multiSelecting:
+		keys = "↑/↓ project · space toggle · a all · enter export · q/esc cancel"
 	}
 	return helpStyle.Render(truncate(keys, m.width-panelHPad))
 }

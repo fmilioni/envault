@@ -230,6 +230,88 @@ func TestSelectEmptyVaultReturnsNil(t *testing.T) {
 	}
 }
 
+func TestMultiSelectToggleAndConfirm(t *testing.T) {
+	v := newTestVault(t)
+	mustSave(t, v, "alpha", "dev", vault.File{Path: ".env", Content: []byte("A=1\n")})
+	mustSave(t, v, "beta", "dev", vault.File{Path: ".env", Content: []byte("B=1\n")})
+	mustSave(t, v, "gamma", "dev", vault.File{Path: ".env", Content: []byte("G=1\n")})
+
+	m, err := newModel(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.multiSelecting = true
+	m.checked = map[string]bool{"beta": true} // pre-checked, like SelectMulti
+	m.preselect("beta", "")
+	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Checkbox state shows in the project list.
+	if vw := m.projectsView(40); !strings.Contains(vw, "[x] beta") || !strings.Contains(vw, "[ ] alpha") {
+		t.Errorf("checkbox state not rendered:\n%s", vw)
+	}
+
+	// Move to gamma (alpha, beta, gamma sorted) and toggle it on.
+	m = send(m, key("down")) // beta → gamma
+	if m.projects[m.projIdx] != "gamma" {
+		t.Fatalf("cursor on %s, want gamma", m.projects[m.projIdx])
+	}
+	m = send(m, key(" "))
+	if !m.checked["gamma"] {
+		t.Error("space did not check gamma")
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if cmd == nil {
+		t.Error("enter did not return a quit command")
+	}
+	if !m.confirmed {
+		t.Fatal("enter did not confirm")
+	}
+	if !m.checked["beta"] || !m.checked["gamma"] || m.checked["alpha"] {
+		t.Errorf("checked = %v, want beta+gamma", m.checked)
+	}
+}
+
+func TestMultiSelectAllAndCancel(t *testing.T) {
+	v := newTestVault(t)
+	mustSave(t, v, "alpha", "dev", vault.File{Path: ".env", Content: []byte("A=1\n")})
+	mustSave(t, v, "beta", "dev", vault.File{Path: ".env", Content: []byte("B=1\n")})
+
+	m, err := newModel(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.multiSelecting = true
+	m.checked = map[string]bool{}
+	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = send(m, key("a"))
+	if !m.allChecked() {
+		t.Error("'a' did not select all")
+	}
+	m = send(m, key("a"))
+	if m.anyChecked() {
+		t.Error("second 'a' did not clear all")
+	}
+
+	// Cancel leaves confirmed false → SelectMulti returns nil.
+	m = send(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.confirmed {
+		t.Error("esc must not confirm")
+	}
+}
+
+func TestSelectMultiEmptyVaultReturnsNil(t *testing.T) {
+	got, err := SelectMulti(newTestVault(t), "anything")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Errorf("empty vault should yield no selection, got %v", got)
+	}
+}
+
 func TestQuitKeys(t *testing.T) {
 	m, err := newModel(newTestVault(t))
 	if err != nil {

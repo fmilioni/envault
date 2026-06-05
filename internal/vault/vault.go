@@ -94,11 +94,17 @@ func OpenAt(root string) (*Vault, error) {
 
 func (v *Vault) Root() string { return v.root }
 
-// Save writes files as the snapshot for (project, stage), overwriting any
-// existing one. The snapshot is staged in a temp dir; the swap moves the old
-// snapshot aside, renames the new one into place, then drops the old — so a
-// crash leaves either the old or the new snapshot intact, never neither.
+// Save writes files as the snapshot for (project, stage), stamped with the
+// current time. See SaveAt to control the timestamp (e.g. import preserving a
+// bundle's original savedAt).
 func (v *Vault) Save(project, stage string, files []File) error {
+	return v.SaveAt(project, stage, files, time.Now().UTC())
+}
+
+// ValidateSnapshot reports whether (project, stage, files) is writable: valid
+// names, at least one file, and every path a safe relative one with no
+// duplicates. Lets callers pre-flight a batch before any write.
+func (v *Vault) ValidateSnapshot(project, stage string, files []File) error {
 	if err := validateName("project", project); err != nil {
 		return err
 	}
@@ -118,6 +124,18 @@ func (v *Vault) Save(project, stage string, files []File) error {
 			return fmt.Errorf("duplicate file path %q", f.Path)
 		}
 		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+// SaveAt writes files as the snapshot for (project, stage) with an explicit
+// savedAt, overwriting any existing one. The snapshot is staged in a temp dir;
+// the swap moves the old snapshot aside, renames the new one into place, then
+// drops the old — so a crash leaves either the old or the new snapshot intact,
+// never neither.
+func (v *Vault) SaveAt(project, stage string, files []File, savedAt time.Time) error {
+	if err := v.ValidateSnapshot(project, stage, files); err != nil {
+		return err
 	}
 
 	projectDir := filepath.Join(v.root, project)
@@ -144,7 +162,7 @@ func (v *Vault) Save(project, stage string, files []File) error {
 
 	m := manifest{
 		Version: manifestVersion,
-		SavedAt: time.Now().UTC(),
+		SavedAt: savedAt,
 		Files:   make([]fileEntry, len(files)),
 	}
 	for i, f := range files {
