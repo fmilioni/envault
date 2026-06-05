@@ -108,6 +108,10 @@ func ResolveStage(override string) string {
 // Slugify normalizes a name into a filesystem-safe slug: lowercased, keeping
 // [a-z0-9_.], with runs of any other characters collapsed to a single dash and
 // trimmed off the ends. May return "" for a degenerate input.
+//
+// Invariant the vault relies on: any non-empty output passes vault.validateName
+// — no path separators or NUL (stripped), and never "." or ".." (dot runs are
+// collapsed and dots are trimmed off the ends). See TestSlugifyOutputIsVaultSafe.
 func Slugify(name string) string {
 	var b strings.Builder
 	pendingDash := false

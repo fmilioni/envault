@@ -207,8 +207,9 @@ func recoverOrphans(root string) {
 				continue
 			}
 			switch {
-			case strings.Contains(name, ".tmp-"):
-				_ = os.RemoveAll(filepath.Join(pdir, name))
+			// `.old` first: a staging dir is ".<stage>.tmp-<rand>" and never ends
+			// in ".old", so a backup whose stage slug contains ".tmp-" isn't
+			// mistaken for staging and discarded.
 			case strings.HasSuffix(name, ".old"):
 				stage := strings.TrimSuffix(strings.TrimPrefix(name, "."), ".old")
 				final := filepath.Join(pdir, stage)
@@ -217,6 +218,8 @@ func recoverOrphans(root string) {
 				} else {
 					_ = os.RemoveAll(filepath.Join(pdir, name))
 				}
+			case strings.Contains(name, ".tmp-"):
+				_ = os.RemoveAll(filepath.Join(pdir, name))
 			}
 		}
 	}

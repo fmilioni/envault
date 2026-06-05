@@ -257,6 +257,32 @@ func TestRecoverRestoresInterruptedSwap(t *testing.T) {
 	}
 }
 
+func TestRecoverHandlesStageSlugWithTmpToken(t *testing.T) {
+	v := newVault(t)
+	// A stage slug can legitimately contain ".tmp-" (envctx Slugify of e.g.
+	// "a.tmp b"). Its backup dir ".a.tmp-b.old" must not be mistaken for a
+	// staging dir and discarded during recovery.
+	const stage = "a.tmp-b"
+	if err := v.Save("myapp", stage, []File{{Path: ".env", Content: []byte("KEEP=1")}}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	pdir := filepath.Join(v.root, "myapp")
+	if err := os.Rename(filepath.Join(pdir, stage), filepath.Join(pdir, "."+stage+".old")); err != nil {
+		t.Fatalf("simulate crash: %v", err)
+	}
+
+	if _, err := OpenAt(v.root); err != nil {
+		t.Fatalf("re-Open: %v", err)
+	}
+	snap, err := v.Load("myapp", stage)
+	if err != nil {
+		t.Fatalf("Load after recover: %v", err)
+	}
+	if string(snap.Files[0].Content) != "KEEP=1" {
+		t.Errorf("recovered content = %q, want KEEP=1", snap.Files[0].Content)
+	}
+}
+
 func TestRecoverDropsStaleBackup(t *testing.T) {
 	v := newVault(t)
 	if err := v.Save("myapp", "default", []File{{Path: ".env", Content: []byte("LIVE=1")}}); err != nil {

@@ -3,6 +3,7 @@ package envctx
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -154,6 +155,36 @@ func TestSlugify(t *testing.T) {
 	for in, want := range cases {
 		if got := Slugify(in); got != want {
 			t.Errorf("Slugify(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSlugifyOutputIsVaultSafe(t *testing.T) {
+	// Boundary contract: whatever Slugify emits must be a name the vault layer
+	// accepts (no separators/NUL, never "." or ".."). Mirrors vault.validateName.
+	inputs := []string{
+		"normal", "My App", "@acme/widget", "a..b", "...", "!!!", "  ",
+		"../escape", "a/b/c", "a\\b", "..", ".", "x..", "..x", "a.tmp b",
+		"con/../trol", "../../etc/passwd", "v1.2.3", "_leading", "trailing_",
+	}
+	for _, in := range inputs {
+		got := Slugify(in)
+		if got == "" {
+			continue
+		}
+		if got == "." || got == ".." {
+			t.Errorf("Slugify(%q) = %q — vault rejects this", in, got)
+		}
+		if strings.ContainsAny(got, "/\\\x00") {
+			t.Errorf("Slugify(%q) = %q — contains a separator/NUL", in, got)
+		}
+		for _, seg := range strings.Split(got, ".") {
+			if seg == "" && got != "." {
+				// an empty segment means consecutive dots survived
+				if strings.Contains(got, "..") {
+					t.Errorf("Slugify(%q) = %q — has a '..' segment", in, got)
+				}
+			}
 		}
 	}
 }
