@@ -110,7 +110,7 @@ func (v *Vault) Save(project, stage string, files []File) error {
 	}
 	seen := make(map[string]struct{}, len(files))
 	for _, f := range files {
-		if err := validateFilePath(f.Path); err != nil {
+		if err := ValidateRelPath(f.Path); err != nil {
 			return err
 		}
 		key := filepath.ToSlash(filepath.Clean(f.Path))
@@ -372,7 +372,9 @@ func validateName(kind, name string) error {
 	return nil
 }
 
-func validateFilePath(p string) error {
+// ValidateRelPath rejects empty, absolute, or folder-escaping paths. Shared with
+// the CLI so the same traversal guard protects both storage and restore writes.
+func ValidateRelPath(p string) error {
 	if p == "" {
 		return errors.New("file path is empty")
 	}

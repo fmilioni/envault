@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,22 +12,6 @@ import (
 
 	"github.com/fmilioni/envault/internal/vault"
 )
-
-// safeRelPath rejects absolute paths and paths that escape the current folder, so
-// neither an explicit --file nor a tampered manifest can read or write outside it.
-func safeRelPath(p string) error {
-	if p == "" {
-		return errors.New("empty file path")
-	}
-	if filepath.IsAbs(p) {
-		return fmt.Errorf("path must be relative to the current folder: %q", p)
-	}
-	clean := filepath.ToSlash(filepath.Clean(p))
-	if clean == ".." || strings.HasPrefix(clean, "../") {
-		return fmt.Errorf("path escapes the current folder: %q", p)
-	}
-	return nil
-}
 
 // openVault opens the vault, honoring ENVAULT_HOME as a root override so tests
 // and power users can point it away from ~/.envault.
@@ -44,7 +27,7 @@ func openVault() (*vault.Vault, error) {
 func readFilesFromDir(dir string, paths []string) ([]vault.File, error) {
 	files := make([]vault.File, 0, len(paths))
 	for _, p := range paths {
-		if err := safeRelPath(p); err != nil {
+		if err := vault.ValidateRelPath(p); err != nil {
 			return nil, err
 		}
 		content, err := os.ReadFile(filepath.Join(dir, p))

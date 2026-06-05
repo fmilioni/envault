@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,7 +52,7 @@ func runLoad(cmd *cobra.Command, yes bool) error {
 	}
 
 	for _, f := range snap.Files {
-		if err := safeRelPath(f.Path); err != nil {
+		if err := vault.ValidateRelPath(f.Path); err != nil {
 			return fmt.Errorf("refusing to restore %q: %w", f.Path, err)
 		}
 	}
@@ -103,7 +104,7 @@ func differingTargets(dir string, files []vault.File) ([]string, error) {
 			}
 			return nil, err
 		}
-		if string(current) != string(f.Content) {
+		if !bytes.Equal(current, f.Content) {
 			out = append(out, f.Path)
 		}
 	}
