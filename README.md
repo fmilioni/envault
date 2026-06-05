@@ -2,6 +2,22 @@
 
 Save and restore `.env` files with a single command — like `git stash` for your environment variables.
 
+## Install
+
+**macOS / Linux:**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/fmilioni/envault/main/install.sh | sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/fmilioni/envault/main/install.ps1 | iex
+```
+
+The installer downloads the right binary from the latest [GitHub Release](https://github.com/fmilioni/envault/releases) and verifies its SHA256 checksum. On Windows it adds `envault` to your user PATH; on macOS/Linux it installs to a PATH directory when possible (`/usr/local/bin`), otherwise to `~/.local/bin` and prints the line to add it. Set `ENVAULT_VERSION` to pin a specific tag. Re-running updates an existing install in place.
+
 ## Build
 
 Requires Go 1.26+.
