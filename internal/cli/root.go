@@ -13,10 +13,15 @@ var (
 	flagStage   string
 )
 
+// Version is the build version shown by `envault --version`; main overrides it
+// with the -ldflags-injected value.
+var Version = "dev"
+
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:          "envault",
 		Short:        "Save and restore .env files — like git stash for your environment variables",
+		Version:      Version,
 		SilenceUsage: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			v, err := openVault()

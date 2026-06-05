@@ -47,6 +47,20 @@ func writeFile(t *testing.T, dir, name, content string) {
 	}
 }
 
+func TestVersionFlag(t *testing.T) {
+	old := Version
+	Version = "v9.9.9-test"
+	defer func() { Version = old }()
+
+	out, err := runCLI(t, "", "--version")
+	if err != nil {
+		t.Fatalf("--version: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "v9.9.9-test") {
+		t.Errorf("--version did not surface the injected version:\n%s", out)
+	}
+}
+
 func TestSaveSingleEnv(t *testing.T) {
 	dir, vaultAt := workspace(t)
 	writeFile(t, dir, ".env", "A=1\n")
