@@ -46,10 +46,20 @@ func Run(v *vault.Vault) error {
 	return err
 }
 
-// Select runs the browser as an interactive picker, pre-selecting the inferred
-// project/stage. Returns the chosen snapshot, nil if the user cancelled, or nil
-// when the vault is empty (nothing to pick).
+// Select runs the browser as an interactive picker for `load`, pre-selecting the
+// inferred project/stage. Returns the chosen snapshot, nil if the user cancelled,
+// or nil when the vault is empty (nothing to pick).
 func Select(v *vault.Vault, project, stage string) (*Selection, error) {
+	return selectWith(v, project, stage, "load")
+}
+
+// SelectForDelete is Select with the picker labelled for the destructive
+// `delete` flow, so the title/help read "delete" instead of "load".
+func SelectForDelete(v *vault.Vault, project, stage string) (*Selection, error) {
+	return selectWith(v, project, stage, "delete")
+}
+
+func selectWith(v *vault.Vault, project, stage, verb string) (*Selection, error) {
 	m, err := newModel(v)
 	if err != nil {
 		return nil, err
@@ -58,6 +68,7 @@ func Select(v *vault.Vault, project, stage string) (*Selection, error) {
 		return nil, nil
 	}
 	m.selecting = true
+	m.selectVerb = verb
 	m.preselect(project, stage)
 	out, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	if err != nil {
@@ -118,8 +129,9 @@ type model struct {
 	width  int
 	height int
 
-	selecting bool
-	chosen    *Selection
+	selecting  bool
+	selectVerb string
+	chosen     *Selection
 
 	multiSelecting bool
 	checked        map[string]bool
@@ -328,7 +340,7 @@ func (m model) View() string {
 func (m model) title() string {
 	switch {
 	case m.selecting:
-		return "Envault · load — pick a snapshot"
+		return "Envault · " + m.selectVerb + " — pick a snapshot"
 	case m.multiSelecting:
 		return "Envault · export — pick projects"
 	}
@@ -476,7 +488,7 @@ func (m model) helpView() string {
 	keys := "↑/↓ project · ←/→ stage · pgup/pgdn scroll · q quit"
 	switch {
 	case m.selecting:
-		keys = "↑/↓ project · ←/→ stage · enter load · q/esc cancel"
+		keys = "↑/↓ project · ←/→ stage · enter " + m.selectVerb + " · q/esc cancel"
 	case m.multiSelecting:
 		keys = "↑/↓ project · space toggle · a all · enter export · q/esc cancel"
 	}

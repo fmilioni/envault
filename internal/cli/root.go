@@ -35,7 +35,7 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().StringVar(&flagProject, "project", "", "override the inferred project name")
 	root.PersistentFlags().StringVar(&flagStage, "stage", "", `stage to operate on (default "default")`)
 
-	root.AddCommand(newSaveCmd(), newLoadCmd(), newExportCmd(), newImportCmd())
+	root.AddCommand(newSaveCmd(), newLoadCmd(), newExportCmd(), newImportCmd(), newDeleteCmd())
 	return root
 }
 
