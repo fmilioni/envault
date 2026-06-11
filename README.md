@@ -38,6 +38,7 @@ CGO_ENABLED=0 go build -o envault ./cmd/envault
 ./envault load              # restore a snapshot into the current folder
 ./envault export            # pack projects/stages into a portable bundle
 ./envault import <bundle>   # import a bundle into the vault
+./envault delete            # delete a snapshot or a whole project from the vault
 ./envault                   # open the interactive browser (no args)
 ```
 
